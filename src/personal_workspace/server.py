@@ -623,7 +623,7 @@ def _chromium():
     return None
 
 
-def open_app_window(url, width=1280, height=860):
+def open_app_window(url):
     """用浏览器的 --app 模式开一个没有地址栏/标签栏的窗口，像桌面客户端。"""
     exe = _chromium()
     if not exe:
@@ -634,7 +634,8 @@ def open_app_window(url, width=1280, height=860):
         os.makedirs(profile, exist_ok=True)
     except OSError:
         profile = tempfile.mkdtemp(prefix="pws-app-")
-    # 与 AI-SessionManager 相同的精简参数：省内存、去后台服务
+    # 精简参数：去后台服务、省内存。单页本地应用不需要多渲染进程，
+    # 也不该让 V8 堆无限增长。
     lean_flags = [
         "--disable-gpu",
         "--disable-extensions",
@@ -646,13 +647,18 @@ def open_app_window(url, width=1280, height=860):
         "--disable-default-apps",
         "--no-service-autorun",
         "--metrics-recording-only",
+        "--process-per-site",
+        "--renderer-process-limit=1",
+        "--js-flags=--max-old-space-size=128",
         "--disable-features=msEdgeSearchIndexer,msEdgeSidebarV2,Translate,"
         "OptimizationHints,MediaRouter",
     ]
     args = [
         exe, "--app=" + url + "?app=1",
         "--user-data-dir=" + profile,
-        "--window-size=%d,%d" % (width, height),
+        # 注意：--window-size 会覆盖 --start-maximized（实测 Edge 里
+        # 两者同时给时窗口仍是 1280x860），所以只保留最大化。
+        "--start-maximized",
         "--no-first-run", "--no-default-browser-check",
         "--disable-background-mode",
     ] + lean_flags
