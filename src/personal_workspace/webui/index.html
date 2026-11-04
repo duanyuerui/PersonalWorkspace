@@ -1086,7 +1086,7 @@ html.pw-pre-dark #pw-prototype:not(.pw-dark){background:#0d0f12;}
               <div><div class="pw-setrow-label">数据库位置</div><div class="pw-setrow-sub mono" id="pw-set-dbpath"></div></div>
             </div>
             <div class="pw-setrow">
-              <div><div class="pw-setrow-label">备份与恢复</div><div class="pw-setrow-sub" id="pw-set-backup-sub">恢复前会自动备份当前数据库，防止误操作</div></div>
+              <div><div class="pw-setrow-label">备份与恢复</div><div class="pw-setrow-sub" id="pw-set-backup-sub">恢复前会自动备份当前数据库，防止误操作 · 最多保留最近 7 份</div></div>
               <div class="pw-setrow-ctl">
                 <button class="pw-btn-sm" id="pw-btn-backup">立即备份</button>
                 <button class="pw-btn-sm" id="pw-btn-restore">从备份恢复</button>
@@ -1094,6 +1094,7 @@ html.pw-pre-dark #pw-prototype:not(.pw-dark){background:#0d0f12;}
             </div>
             <div class="pw-setrow">
               <div><div class="pw-setrow-label">日志</div><div class="pw-setrow-sub mono" id="pw-set-logpath"></div></div>
+              <div class="pw-setrow-ctl"><button class="pw-btn-sm" id="pw-btn-clearlog">清除所有日志</button></div>
             </div>
           </div>
 
@@ -3811,7 +3812,7 @@ html.pw-pre-dark #pw-prototype:not(.pw-dark){background:#0d0f12;}
     dn.classList.toggle('is-on', String(s.desktop_notify) !== '0');
     dn.setAttribute('aria-pressed', String(s.desktop_notify !== '0'));
     document.getElementById('pw-set-dbpath').textContent = state.boot.db_path;
-    document.getElementById('pw-set-logpath').textContent = state.boot.data_dir + '\\Logs';
+    document.getElementById('pw-set-logpath').textContent = state.boot.data_dir + '\\Logs · 保留最近 15 天';
     document.getElementById('pw-set-version').textContent = 'V' + state.boot.version + ' · 本地优先 · 数据不出本机';
   }
   document.getElementById('pw-set-start').addEventListener('change', function(){
@@ -3854,7 +3855,7 @@ html.pw-pre-dark #pw-prototype:not(.pw-dark){background:#0d0f12;}
   document.getElementById('pw-btn-backup').addEventListener('click', function(){
     post('/api/backup', {}).then(function(res){
       document.getElementById('pw-set-backup-sub').textContent =
-        '上次备份：' + res.path + ' · 恢复前会自动备份当前数据库';
+        '上次备份：' + res.path + ' · 恢复前会自动备份当前数据库 · 最多保留 7 份';
       toast('已备份 ' + res.path.split('\\').pop());
     }).catch(handleError);
   });
@@ -3874,6 +3875,16 @@ html.pw-pre-dark #pw-prototype:not(.pw-dark){background:#0d0f12;}
           }).catch(handleError);
         });
     }).catch(handleError);
+  });
+
+  document.getElementById('pw-btn-clearlog').addEventListener('click', function(){
+    pwConfirm('清除所有日志',
+      '会删除 Logs 目录下的 app.log 以及历史轮转日志，不影响待办、日程和数据。',
+      '清除', function(){
+        post('/api/logs/clear', {}).then(function(res){
+          toast('已清除 ' + res.removed + ' 个日志文件');
+        }).catch(handleError);
+      });
   });
 
   /* ================= 全局搜索 ================= */

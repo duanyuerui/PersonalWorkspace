@@ -307,6 +307,36 @@ def init_db():
         conn.close()
 
 
+BACKUP_KEEP = 7
+
+
+def _prune_backups(keep=BACKUP_KEEP):
+    """只保留最近 N 份备份（按修改时间），返回删除数量。"""
+    d = backups_dir()
+    try:
+        names = os.listdir(d)
+    except OSError:
+        return 0
+    items = []
+    for name in names:
+        if not (name.startswith("workspace-") and name.endswith(".db")):
+            continue
+        p = os.path.join(d, name)
+        try:
+            items.append((os.stat(p).st_mtime, p))
+        except OSError:
+            continue
+    items.sort(key=lambda x: -x[0])
+    removed = 0
+    for _, p in items[keep:]:
+        try:
+            os.remove(p)
+            removed += 1
+        except OSError:
+            pass
+    return removed
+
+
 def backup_now(tag=""):
     """用 SQLite Backup API 备份到 Backups/，返回备份文件路径。"""
     os.makedirs(backups_dir(), exist_ok=True)
@@ -322,6 +352,7 @@ def backup_now(tag=""):
             dest.close()
     finally:
         src.close()
+    _prune_backups()
     return dest_path
 
 

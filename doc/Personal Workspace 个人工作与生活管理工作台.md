@@ -454,7 +454,7 @@ V1.1 起时间轴与工作台由 P1 转正为正式页面；重要日子为评�
   图标        Lucide                        与原型一致
   数据库      SQLite（Python 内置 sqlite3）  本地单机存储
   通知        页面内通知 + Notification API 应用运行期间有效
-  日志        logging + 滚动文件            本地日志
+  日志        logging 按天滚动              本地日志，保留最近 15 天
   配置        JSON                          本地用户配置
   打包        PyInstaller（可选）           后续按需提供单文件可执行版
 

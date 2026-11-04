@@ -1373,15 +1373,15 @@ button.pw-trow-title:hover{color:rgb(var(--c-accent));text-decoration:underline;
                   <div class="pw-setrow-ctl"><button class="pw-btn-sm" data-demo="更改数据库位置（原型演示）">更改</button></div>
                 </div>
                 <div class="pw-setrow">
-                  <div><div class="pw-setrow-label">备份与恢复</div><div class="pw-setrow-sub">恢复前会自动备份当前数据库，防止误操作</div></div>
+                  <div><div class="pw-setrow-label">备份与恢复</div><div class="pw-setrow-sub">恢复前会自动备份当前数据库，防止误操作 · 最多保留最近 7 份</div></div>
                   <div class="pw-setrow-ctl">
                     <button class="pw-btn-sm" id="pw-btn-backup">立即备份</button>
                     <button class="pw-btn-sm" id="pw-btn-restore">从备份恢复</button>
                   </div>
                 </div>
                 <div class="pw-setrow">
-                  <div><div class="pw-setrow-label">日志</div><div class="pw-setrow-sub mono">%LOCALAPPDATA%\PersonalWorkspace\Logs</div></div>
-                  <div class="pw-setrow-ctl"><button class="pw-btn-sm" data-demo="打开日志目录（原型演示）">打开目录</button></div>
+                  <div><div class="pw-setrow-label">日志</div><div class="pw-setrow-sub mono">%LOCALAPPDATA%\PersonalWorkspace\Logs · 保留最近 15 天</div></div>
+                  <div class="pw-setrow-ctl"><button class="pw-btn-sm" id="pw-btn-clearlog">清除所有日志</button></div>
                 </div>
               </div>
 
@@ -3288,6 +3288,12 @@ button.pw-trow-title:hover{color:rgb(var(--c-accent));text-decoration:underline;
       '将用最近一次备份（10月31日 22:00）覆盖当前全部数据。<br>恢复前会自动备份当前数据库，防止误操作。',
       '恢复',
       function(){ toast('已从备份恢复（演示）· 正式版将重新加载数据'); });
+  });
+  document.getElementById('pw-btn-clearlog').addEventListener('click', function(){
+    pwConfirm('清除所有日志',
+      '会删除 Logs 目录下的 app.log 以及历史轮转日志，不影响待办、日程和数据。',
+      '清除',
+      function(){ toast('已清除 4 个日志文件（演示）'); });
   });
 
   /* ---------- 重要日子（倒计时） ---------- */

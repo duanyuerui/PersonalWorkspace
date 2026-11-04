@@ -40,8 +40,8 @@ dist\PersonalWorkspace.exe               # 双击即用（窗口版，无控制�
 ```text
 %LOCALAPPDATA%\PersonalWorkspace\
 ├── workspace.db      # SQLite（WAL 模式；时刻存 epoch 秒，纯日期存本地 ISO 日期）
-├── Backups\          # 「设置 → 立即备份」的备份文件（SQLite Backup API）
-├── Logs\app.log      # 滚动日志
+├── Backups\          # 「设置 → 立即备份」的备份文件（SQLite Backup API），最多保留最近 7 份
+├── Logs\app.log      # 日志（每天滚动，保留最近 15 天）
 └── app-profile-<端口>\  # 客户端窗口的浏览器 profile
 ```
 
@@ -77,6 +77,8 @@ doc/                              # 产品需求与原型文档
 - **备份恢复**：SQLite Backup API；恢复前自动再备份当前库。
 
 ## 版本
+
+V1.0.1 —— 设置增强：日志按天滚动、保留最近 15 天并支持一键清除；备份最多保留最近 7 份；修复文件日志未实际写入的问题。
 
 V1.0.0 —— PRD V1.0 范围全量：今天 / 快速创建 / 收集箱 / 待办 + 详情 / 日历（日·周·月）/
 提醒中心 / 每日总结 / 搜索 / 分类标签 / 重要日子 / 时间轴 / 工作台 / 设置 / 备份恢复。

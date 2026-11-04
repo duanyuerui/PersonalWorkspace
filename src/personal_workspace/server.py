@@ -49,17 +49,79 @@ def _webui_root():
 UI_FILE = os.path.join(_webui_root(), "index.html")
 
 
-def _setup_logging():
+LOG_KEEP_DAYS = 15
+
+
+def _prune_logs(log_dir, keep_days=LOG_KEEP_DAYS):
+    """按修改时间清理超过保留期的日志（含旧版按大小轮转的文件）。"""
+    cutoff = time.time() - keep_days * 86400
+    removed = 0
+    try:
+        names = os.listdir(log_dir)
+    except OSError:
+        return 0
+    for name in names:
+        if not name.startswith("app.log"):
+            continue
+        path = os.path.join(log_dir, name)
+        try:
+            if os.path.isfile(path) and os.path.getmtime(path) < cutoff:
+                os.remove(path)
+                removed += 1
+        except OSError:
+            pass
+    return removed
+
+
+def _log_handler():
     try:
         log_dir = os.path.join(db.data_dir(), "Logs")
         os.makedirs(log_dir, exist_ok=True)
-        handler = logging.handlers.RotatingFileHandler(  # noqa: F821
-            os.path.join(log_dir, "app.log"), maxBytes=1_000_000,
-            backupCount=3, encoding="utf-8")
-        logging.basicConfig(level=logging.INFO, handler=handler, format=(
-            "%(asctime)s %(levelname)s %(message)s"))
+        _prune_logs(log_dir)
+        return logging.handlers.TimedRotatingFileHandler(
+            os.path.join(log_dir, "app.log"), when="midnight",
+            interval=1, backupCount=LOG_KEEP_DAYS - 1, encoding="utf-8",
+            delay=True)
     except Exception:  # noqa: BLE001
+        return None
+
+
+def _setup_logging():
+    handler = _log_handler()
+    if handler is not None:
+        logging.basicConfig(level=logging.INFO, handlers=[handler], format=(
+            "%(asctime)s %(levelname)s %(message)s"))
+    else:
         logging.basicConfig(level=logging.INFO)
+
+
+def _clear_logs():
+    """清空 Logs 目录下的 app.log 及轮转备份（先释放文件句柄）。"""
+    for lg in (logging.getLogger(), LOG):
+        for h in list(lg.handlers):
+            if isinstance(h, logging.handlers.BaseRotatingHandler):
+                lg.removeHandler(h)
+                try:
+                    h.close()
+                except Exception:  # noqa: BLE001
+                    pass
+    log_dir = os.path.join(db.data_dir(), "Logs")
+    removed = 0
+    if os.path.isdir(log_dir):
+        for name in os.listdir(log_dir):
+            if not name.startswith("app.log"):
+                continue
+            try:
+                os.remove(os.path.join(log_dir, name))
+                removed += 1
+            except OSError:
+                pass
+    handler = _log_handler()
+    if handler is not None:
+        handler.setFormatter(logging.Formatter(
+            "%(asctime)s %(levelname)s %(message)s"))
+        logging.getLogger().addHandler(handler)
+    return {"removed": removed, "path": log_dir}
 
 
 def _say(msg):
@@ -438,6 +500,8 @@ class Handler(BaseHTTPRequestHandler):
             if p == "/api/task/meta_many":
                 return self._json({"count": _with_conn_post(
                     core.task_meta_many, body)})
+            if p == "/api/logs/clear":
+                return self._json(_clear_logs())
             if p == "/api/task/delete":
                 return self._json({"title": _with_conn_post(
                     lambda c, b: core.task_delete(c, int(b.get("id", 0))), body)})
