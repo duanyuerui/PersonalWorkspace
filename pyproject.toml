@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "personal-workspace"
+version = "1.0.0"
+description = "以「今天」为主入口的个人工作与生活管理工作台：待办 / 日程 / 提醒 / 每日记录"
+readme = "doc/Personal Workspace 个人工作与生活管理工作台.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+dependencies = []
+
+[project.scripts]
+personal-workspace = "personal_workspace.server:main"
+workspace-cli = "personal_workspace.core:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+personal_workspace = ["webui/*.html", "webui/vendor/*"]
