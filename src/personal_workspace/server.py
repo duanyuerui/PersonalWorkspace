@@ -650,6 +650,11 @@ def open_app_window(url):
         "--process-per-site",
         "--renderer-process-limit=1",
         "--js-flags=--max-old-space-size=128",
+        # Edge 会为内置组件扩展各开一个渲染进程（实测 6 个、约 110MB）。
+        # 本地单页应用用不到这些后台扩展，直接关掉。
+        "--disable-component-extensions-with-background-pages",
+        # GPU 进程并入主进程，少一个常驻进程（约 10MB）。
+        "--in-process-gpu",
         "--disable-features=msEdgeSearchIndexer,msEdgeSidebarV2,Translate,"
         "OptimizationHints,MediaRouter",
     ]
