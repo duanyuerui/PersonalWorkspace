@@ -264,6 +264,63 @@ class RulesTest(unittest.TestCase):
         self.assertEqual(res2["skipped"], ["删掉的条目"])
         self.assertEqual(core.task_list(self.conn)["groups"]["done"], [])
 
+    def test_journal_future_date_does_not_create_records(self):
+        """往未来日期写今日工作只存文字，不生成完成记录。"""
+        tomorrow = core.date_add(core.today_str(), 1)
+        res = core.journal_reconcile(self.conn, tomorrow, "- 明天才做的事")
+        self.assertEqual(res["created"], [])
+        self.assertEqual(res["completed"], [])
+        count = self.conn.execute(
+            "SELECT COUNT(*) c FROM biz_task").fetchone()["c"]
+        self.assertEqual(count, 0)
+
+    def test_journal_same_title_on_another_day_counts_per_day(self):
+        """以前某天完成过同名事项，今天日报再写仍算今天的完成（按天各记一条）。"""
+        today = core.today_str()
+        yesterday = core.date_add(today, -1)
+        first = core.journal_reconcile(self.conn, yesterday, "- 巡检设备")
+        self.assertEqual(first["created"], ["巡检设备"])
+        res = core.journal_reconcile(self.conn, today, "- 巡检设备")
+        self.assertEqual(res["created"], ["巡检设备"])
+        d = core.today_data(self.conn, today)
+        self.assertEqual([t["title"] for t in d["done"]], ["巡检设备"])
+        # 同一天重复核对仍然幂等
+        res2 = core.journal_reconcile(self.conn, today, "- 巡检设备")
+        self.assertEqual(res2["created"], [])
+        self.assertEqual(res2["skipped"], ["巡检设备"])
+
+    def test_journal_edit_line_syncs_rename_and_remove(self):
+        """日报里改写/删掉一行时，同步改名/移出当天由日报生成的记录。"""
+        today = core.today_str()
+        res = core.journal_reconcile(
+            self.conn, today, "- 处理武安退费问题\n- 巡检设备")
+        self.assertEqual(res["created"], ["处理武安退费问题", "巡检设备"])
+        row = self.conn.execute(
+            "SELECT id, completed_at FROM biz_task WHERE title=?",
+            ["处理武安退费问题"]).fetchone()
+        old_ts = row["completed_at"]
+        # 改写：标题同步，完成时间保留
+        res = core.journal_reconcile(
+            self.conn, today, "- 处理武安镇退费问题\n- 巡检设备")
+        self.assertEqual(res["renamed"], ["处理武安镇退费问题"])
+        r = self.conn.execute(
+            "SELECT title, completed_at, is_deleted FROM biz_task WHERE id=?",
+            [row["id"]]).fetchone()
+        self.assertEqual(r["title"], "处理武安镇退费问题")
+        self.assertEqual(r["completed_at"], old_ts)
+        self.assertEqual(r["is_deleted"], 0)
+        # 删掉一行：对应记录移出，另一条保留
+        res = core.journal_reconcile(
+            self.conn, today, "- 处理武安镇退费问题")
+        self.assertEqual(res["removed"], ["巡检设备"])
+        titles = [t["title"]
+                  for t in core.task_list(self.conn)["groups"]["done"]]
+        self.assertEqual(titles, ["处理武安镇退费问题"])
+        # 重新写回这一行：会重新生成（同步删除不算用户删除）
+        res = core.journal_reconcile(
+            self.conn, today, "- 处理武安镇退费问题\n- 巡检设备")
+        self.assertEqual(res["created"], ["巡检设备"])
+
     def test_plan_written_today_shows_on_next_day_today_page(self):
         """今天写的明日计划，第二天才在「今天」页作为今日工作计划出现。"""
         today = core.today_str()

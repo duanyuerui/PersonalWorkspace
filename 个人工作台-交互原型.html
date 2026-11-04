@@ -2640,6 +2640,8 @@ button.pw-trow-title:hover{color:rgb(var(--c-accent));text-decoration:underline;
   function reconcileJournalToday(){
     var changed = false;
     var lines = (document.getElementById('pw-journal-today').value || '').split('\n');
+    var presentKeys = {};
+    var createdNow = [];
     lines.forEach(function(raw){
       var t = raw.trim();
       if(!t) return;
@@ -2649,6 +2651,7 @@ button.pw-trow-title:hover{color:rgb(var(--c-accent));text-decoration:underline;
       title = stripJournalMarker(title);
       if(!title) return;
       var titleKey = journalTitleKey(title);
+      presentKeys[titleKey] = true;
       var matchId = null;
       Object.keys(TASKS).forEach(function(k){
         if(journalTitleKey(TASKS[k].title) === titleKey && TASKS[k].status !== '已完成'){ matchId = k; }
@@ -2662,18 +2665,41 @@ button.pw-trow-title:hover{color:rgb(var(--c-accent));text-decoration:underline;
       if(alreadyDone) return;
       if(DELETED_JOURNAL_KEYS[titleKey]) return;
       var nid = 'j' + (qcSeq++);
-      TASKS[nid] = { title:title, status:'已完成', via:'日报', planned:'今天 · 10月31日', due:'—', est:'—', cat:'未分类', tags:[],
+      TASKS[nid] = { title:title, status:'已完成', via:'日报', journalAuto:true, planned:'今天 · 10月31日', due:'—', est:'—', cat:'未分类', tags:[],
         rem:'—', note:'来自日报「今日工作」', hist:['今天 ' + nowHM() + ' · 已完成（来自日报）'] };
       var rowHtml = buildDoneRow(nid, title, nowHM());
       document.getElementById('pw-today-done-list').insertAdjacentHTML('beforeend', rowHtml);
       var dg = document.querySelector('[data-group="done"] .pw-card');
       if(dg){ dg.insertAdjacentHTML('beforeend', rowHtml); }
+      createdNow.push(nid);
       changed = true;
     });
+    /* 日报里删掉/改写的行：同步移出对应的日报记录，只剩一对时按改名处理 */
+    var staleIds = Object.keys(TASKS).filter(function(k){
+      return TASKS[k].journalAuto && !presentKeys[journalTitleKey(TASKS[k].title)];
+    });
+    if(staleIds.length === 1 && createdNow.length === 1){
+      var oldT = TASKS[staleIds[0]], newT = TASKS[createdNow[0]];
+      oldT.title = newT.title;
+      delete TASKS[createdNow[0]];
+      $$('[data-row="' + createdNow[0] + '"]').forEach(function(row){ row.remove(); });
+      $$('[data-row="' + staleIds[0] + '"]').forEach(function(row){
+        var b = row.querySelector('.pw-trow-title'); if(b){ b.textContent = oldT.title; }
+        var chk = row.querySelector('[data-task]'); if(chk){ chk.setAttribute('aria-label', '撤销完成：' + oldT.title); }
+      });
+      changed = true;
+    } else {
+      staleIds.forEach(function(k){
+        delete TASKS[k];
+        $$('[data-row="' + k + '"]').forEach(function(row){ row.remove(); });
+        if(window.__pwDetailId === k){ closeDetail(); }
+        changed = true;
+      });
+    }
     if(changed){
       updateTodayStats();
       if(window.lucide){ lucide.createIcons({attrs:{width:16,height:16}}); }
-      toast('日报的今日工作已逐条记入「今日完成」');
+      toast('日报的今日工作已与「今日完成」同步');
     }
   }
   document.getElementById('pw-journal-today').addEventListener('blur', function(){

@@ -3137,8 +3137,12 @@ html.pw-pre-dark #pw-prototype:not(.pw-dark){background:#0d0f12;}
       if(state.journal){ state.journal.content = v; }
       return post('/api/journal/reconcile', {date: d, content: v});
     }).then(function(res){
-      var n = (res.completed || []).length + (res.created || []).length;
-      if(n){ toast('已逐条记入「今日完成」：勾掉 ' + (res.completed || []).length + ' 件，新建 ' + (res.created || []).length + ' 件'); }
+      var parts = [];
+      if((res.completed || []).length){ parts.push('勾掉 ' + res.completed.length + ' 件'); }
+      if((res.created || []).length){ parts.push('新建 ' + res.created.length + ' 件'); }
+      if((res.renamed || []).length){ parts.push('改名 ' + res.renamed.length + ' 件'); }
+      if((res.removed || []).length){ parts.push('移出 ' + res.removed.length + ' 件'); }
+      if(parts.length){ toast('已与「今日完成」同步：' + parts.join('，')); }
       if(state.journalDate === d){ loadJournal(); }
     }).catch(handleError);
   });

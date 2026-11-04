@@ -8,6 +8,7 @@
     today | list | backup | stats
 """
 import datetime as _dt
+import difflib
 import json
 import re
 import sys
@@ -944,31 +945,83 @@ def _find_task_by_journal_title(conn, title, statuses):
 
 
 def _deleted_journal_match(conn, title, date):
-    """同一日报日期下已删除的同名任务：删除即用户决定，不再从日报文本重建。"""
+    """同一日报日期下已删除的同名任务：删除即用户决定，不再从日报文本重建。
+
+    日报同步删掉的记录（history.action='sync'）不算用户删除，日报里重新写回
+    这一行时应当重新生成。
+    """
     target = _journal_title_key(title)
     a, b = date_to_epoch(date, "00:00"), date_to_epoch(date, "23:59")
     rows = conn.execute(
-        "SELECT title FROM biz_task WHERE is_deleted=1"
-        " AND (planned_date=? OR (completed_at BETWEEN ? AND ?))",
+        "SELECT t.title FROM biz_task t WHERE t.is_deleted=1"
+        " AND (t.planned_date=? OR (t.completed_at BETWEEN ? AND ?))"
+        " AND NOT EXISTS (SELECT 1 FROM biz_task_history h"
+        "   WHERE h.task_id=t.id AND h.action='sync')",
         (date, a, b))
     return any(_journal_title_key(r["title"]) == target for r in rows)
 
 
+def _find_task_by_journal_title_on_date(conn, title, a, b):
+    """同一天里已完成、标题相同的任务（按天去重：别的日期的同名记录不算）。"""
+    target = _journal_title_key(title)
+    rows = conn.execute(
+        "SELECT id, title FROM biz_task WHERE is_deleted=0 AND status=2"
+        " AND completed_at BETWEEN ? AND ? ORDER BY id", (a, b))
+    for r in rows:
+        if _journal_title_key(r["title"]) == target:
+            return r
+    return None
+
+
+def _journal_similarity(a, b):
+    return difflib.SequenceMatcher(None, a, b).ratio()
+
+
 def journal_reconcile(conn, date, content):
-    """原型逻辑：日报逐行与待办核对——同名未完成待办自动完成；
-    没有对应待办的行生成已完成的待办（保留来源，PRD 5.2 完成历史）。"""
+    """日报逐行与待办核对（PRD 4.6 / 5.2）。
+
+    - 今天：同名未完成待办自动完成；没有对应待办的行生成已完成记录；
+    - 往日：完成时间归到那天中午，只计入那一天；
+    - 未来：只存文字，不生成完成记录；
+    - 按天去重：只和「同一天」的完成记录比标题，别的日期写过同一件事
+      不影响这一天；
+    - 双向同步：日报里删掉/改写的行，同步删除/改名当天由日报生成的记录；
+      手动勾选完成的任务不在此列。
+    """
     date = check_date(date) or today_str()
     lines = []
     for raw in (content or "").splitlines():
         s = strip_line_marker(raw)
         if s:
             lines.append(s)
-    completed, created, skipped = [], [], []
+    out = {"completed": [], "created": [], "skipped": [],
+           "renamed": [], "removed": []}
+    if date > today_str():          # 未来日期只有文字，没有完成事实
+        return out
+
+    a, b = date_to_epoch(date, "00:00"), date_to_epoch(date, "23:59")
     ts = now()
     # 补记往日日报：完成时间归到那一天，不能算进「今天」的完成统计
     done_ts = ts if date == today_str() else date_to_epoch(date, "12:00")
     with db.write_txn(conn):
+        # 这一天由日报生成的完成记录 —— 同步删除/改名的基准
+        existing = conn.execute(
+            "SELECT id, title FROM biz_task"
+            " WHERE is_deleted=0 AND status=2 AND created_via='日报'"
+            " AND planned_date=? AND completed_at BETWEEN ? AND ?"
+            " ORDER BY id", (date, a, b)).fetchall()
+        by_key = {}
+        for r in existing:
+            by_key.setdefault(_journal_title_key(r["title"]), []).append(r)
+        kept_ids, pending, pending_keys = set(), [], set()
+
         for title in lines:
+            key = _journal_title_key(title)
+            bucket = by_key.get(key)
+            if bucket:               # 这一天已经记过这一行
+                kept_ids.add(bucket.pop(0)["id"])
+                out["skipped"].append(title)
+                continue
             # 兼容旧数据：标题可能残留「- 」「* 」「1. 」等列表符号，
             # 比对前统一去掉，避免同一行被反复建成新记录。
             row = _find_task_by_journal_title(conn, title, (0, 1))
@@ -983,16 +1036,59 @@ def journal_reconcile(conn, date, content):
                     "UPDATE biz_reminder SET status=2, updated_at=?"
                     " WHERE source_type='task' AND source_id=?"
                     " AND status IN (0,1)", (done_ts, row["id"]))
-                completed.append(title)
+                out["completed"].append(title)
                 continue
-            # 已有同名已完成任务：视为已核对过，跳过（幂等，防重复建）
-            done_row = _find_task_by_journal_title(conn, title, (2,))
-            if done_row:
-                skipped.append(title)
+            # 同一天已有同名完成记录（手动勾选或日报记入）：不重复建
+            if _find_task_by_journal_title_on_date(conn, title, a, b):
+                out["skipped"].append(title)
                 continue
             # 用户删掉过这条记录：尊重删除，不再从日报文本重新生成
             if _deleted_journal_match(conn, title, date):
-                skipped.append(title)
+                out["skipped"].append(title)
+                continue
+            if key in pending_keys:  # 日报里同一行写了两遍
+                out["skipped"].append(title)
+                continue
+            pending.append(title)
+            pending_keys.add(key)
+
+        # 日报里已经删掉/改写的行：同步删除或改名对应的日报记录
+        unmatched = [r for r in existing if r["id"] not in kept_ids]
+        pairs = []
+        for pi, title in enumerate(pending):
+            for ri, r in enumerate(unmatched):
+                ratio = _journal_similarity(title, r["title"])
+                if ratio >= 0.7:     # 改动几个字算改名，保留原完成时间
+                    pairs.append((ratio, pi, ri))
+        pairs.sort(reverse=True)
+        used_p, used_r = set(), set()
+        for _, pi, ri in pairs:
+            if pi in used_p or ri in used_r:
+                continue
+            used_p.add(pi)
+            used_r.add(ri)
+            old, new = unmatched[ri]["title"], pending[pi]
+            conn.execute("UPDATE biz_task SET title=?, updated_at=? WHERE id=?",
+                         (new, ts, unmatched[ri]["id"]))
+            _history_add(conn, unmatched[ri]["id"], "edit",
+                         {"title": [old, new], "via": "日报同步"}, ts)
+            out["renamed"].append(new)
+        for ri, r in enumerate(unmatched):
+            if ri in used_r:
+                continue
+            conn.execute(
+                "UPDATE biz_task SET is_deleted=1, updated_at=? WHERE id=?",
+                (ts, r["id"]))
+            conn.execute(
+                "UPDATE biz_reminder SET status=3, updated_at=?"
+                " WHERE source_type='task' AND source_id=?"
+                " AND status IN (0,1)", (ts, r["id"]))
+            _history_add(conn, r["id"], "sync",
+                         {"title": r["title"], "reason": "日报中已删除该行"}, ts)
+            out["removed"].append(r["title"])
+
+        for pi, title in enumerate(pending):
+            if pi in used_p:
                 continue
             cur = conn.execute(
                 "INSERT INTO biz_task(title, status, planned_date,"
@@ -1002,8 +1098,8 @@ def journal_reconcile(conn, date, content):
                 (title, 2, date, done_ts, "日报", done_ts, ts))
             _history_add(conn, cur.lastrowid, "created",
                          {"title": title, "via": "每日总结"}, done_ts)
-            created.append(title)
-    return {"completed": completed, "created": created, "skipped": skipped}
+            out["created"].append(title)
+    return out
 
 
 def plan_convert(conn, journal_date, index=None, action="task"):
