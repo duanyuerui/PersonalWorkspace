@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "personal-workspace"
-version = "1.0.4"
+version = "1.0.5"
 description = "以「今天」为主入口的个人工作与生活管理工作台：待办 / 日程 / 提醒 / 每日记录"
 readme = "doc/Personal Workspace 个人工作与生活管理工作台.md"
 requires-python = ">=3.9"

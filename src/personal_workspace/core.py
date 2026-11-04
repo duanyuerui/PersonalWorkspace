@@ -945,19 +945,19 @@ def _find_task_by_journal_title(conn, title, statuses):
 
 
 def _deleted_journal_match(conn, title, date):
-    """同一日报日期下已删除的同名任务：删除即用户决定，不再从日报文本重建。
+    """当天由日报生成、已被用户删除的同名记录：删除即用户决定，不再重建。
 
-    日报同步删掉的记录（history.action='sync'）不算用户删除，日报里重新写回
-    这一行时应当重新生成。
+    只认「这一天日报生成的记录」；别的日期删掉的同名任务（比如昨天完成过、
+    后来又被删）不影响今天日报记一条。日报同步删掉的记录
+    （history.action='sync'）不算用户删除，日报里重新写回会重新生成。
     """
     target = _journal_title_key(title)
-    a, b = date_to_epoch(date, "00:00"), date_to_epoch(date, "23:59")
     rows = conn.execute(
         "SELECT t.title FROM biz_task t WHERE t.is_deleted=1"
-        " AND (t.planned_date=? OR (t.completed_at BETWEEN ? AND ?))"
+        " AND t.created_via='日报' AND t.planned_date=?"
         " AND NOT EXISTS (SELECT 1 FROM biz_task_history h"
         "   WHERE h.task_id=t.id AND h.action='sync')",
-        (date, a, b))
+        (date,))
     return any(_journal_title_key(r["title"]) == target for r in rows)
 
 

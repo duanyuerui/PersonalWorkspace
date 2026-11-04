@@ -289,6 +289,17 @@ class RulesTest(unittest.TestCase):
         self.assertEqual(res2["created"], [])
         self.assertEqual(res2["skipped"], ["巡检设备"])
 
+    def test_journal_deleted_task_from_another_day_does_not_block(self):
+        """别的日期删掉的同名任务，不应该挡住今天日报记一条。"""
+        today = core.today_str()
+        tid = core.task_save(self.conn, {
+            "title": "同名事项", "planned_date": core.date_add(today, -1)})
+        core.task_set_status(self.conn, tid, 2)
+        core.task_delete(self.conn, tid)
+        res = core.journal_reconcile(self.conn, today, "- 同名事项")
+        self.assertEqual(res["created"], ["同名事项"])
+        self.assertEqual(res["skipped"], [])
+
     def test_journal_edit_line_syncs_rename_and_remove(self):
         """日报里改写/删掉一行时，同步改名/移出当天由日报生成的记录。"""
         today = core.today_str()
