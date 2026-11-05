@@ -1501,6 +1501,7 @@ html.pw-pre-dark #pw-prototype:not(.pw-dark){background:#0d0f12;}
     calAnchor: todayKey(),
     calEvents: [],
     journalDate: todayKey(),
+    journalToday: todayKey(),   // 进入日报页时「今天」的锚点，跨天用来自动跳转
     journal: null,
     journalShown: '',     // 文本框里实际显示的是哪一天，防止把内容存到别的日期
     tlDate: todayKey(),
@@ -1580,7 +1581,7 @@ html.pw-pre-dark #pw-prototype:not(.pw-dark){background:#0d0f12;}
       }
       else if(name === 'calendar'){ await loadCalendar(); }
       else if(name === 'reminders'){ await loadReminders(); }
-      else if(name === 'journal'){ await loadJournal(); }
+      else if(name === 'journal'){ syncJournalToday(); await loadJournal(); }
       else if(name === 'wb'){ await loadWb(); }
       else if(name === 'tl'){ await loadTL(); }
       else if(name === 'days'){ await loadDays(); }
@@ -2965,6 +2966,34 @@ html.pw-pre-dark #pw-prototype:not(.pw-dark){background:#0d0f12;}
   });
 
   /* ================= 每日总结 ================= */
+  /* 跨天：日报页一直开着时，第二天自动切到新的「今天」。
+     只有当前显示的日期本来就是「今天」才跳；手动翻到往日/未来不动。 */
+  function syncJournalToday(){
+    var t = todayKey();
+    if(state.journalDate === state.journalToday && state.journalToday !== t){
+      state.journalDate = t;
+      state.journalToday = t;
+      return true;
+    }
+    return false;
+  }
+  function journalRolloverTick(){
+    if(state.page !== 'journal'){ return; }
+    var ae = document.activeElement;
+    if(ae && (ae.id === 'pw-journal-today' || ae.id === 'pw-journal-tomorrow')){
+      return;  // 正在写日报，别把输入框换掉
+    }
+    var t = todayKey();
+    if(state.journalDate !== state.journalToday || state.journalToday === t){
+      return;
+    }
+    (async function(){
+      await switchJournalDate(t);
+      if(state.journalDate === t){
+        toast('已自动切换到今天 · ' + fmtMD(t));
+      }
+    })();
+  }
   async function loadJournal(force){
     var data = await api('/api/journal?date=' + state.journalDate);
     state.journal = data;
@@ -2979,6 +3008,7 @@ html.pw-pre-dark #pw-prototype:not(.pw-dark){background:#0d0f12;}
     if(force || document.activeElement !== t1){ t1.value = data.content || ''; }
     if(force || document.activeElement !== t2){ t2.value = data.plan || ''; }
     state.journalShown = data.journal_date;
+    if(data.journal_date === todayKey()){ state.journalToday = data.journal_date; }
     validateJournal('today');
     validateJournal('tomorrow');
     refreshIcons();
@@ -4027,8 +4057,9 @@ html.pw-pre-dark #pw-prototype:not(.pw-dark){background:#0d0f12;}
     }catch(e){ /* 服务未就绪时静默 */ }
   }
   document.addEventListener('visibilitychange', function(){
-    if(!document.hidden){ pollNotify(); }
+    if(!document.hidden){ pollNotify(); journalRolloverTick(); }
   });
+  window.addEventListener('focus', journalRolloverTick);
 
   /* ================= 键盘 ================= */
   document.addEventListener('keydown', function(e){
@@ -4096,6 +4127,7 @@ html.pw-pre-dark #pw-prototype:not(.pw-dark){background:#0d0f12;}
     setInterval(pollNotify, 20000);
     pollUiVersion();
     setInterval(pollUiVersion, 15000);
+    setInterval(journalRolloverTick, 60000);
   }).catch(function(e){
     toast('加载失败：' + (e.message || e));
   });
