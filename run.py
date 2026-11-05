@@ -4,7 +4,7 @@
     python run.py                 # 默认 http://127.0.0.1:8766
     python run.py --port 8899     # 换端口（被占用会自动往后找）
     python run.py --no-browser    # 只起服务
-    python run.py --app           # 用独立客户端窗口打开（没有地址栏）
+    python run.py --app           # 用独立客户端窗口打开（原生窗口）
 
 等价的命令行入口：
     python -m personal_workspace today | list | backup | stats

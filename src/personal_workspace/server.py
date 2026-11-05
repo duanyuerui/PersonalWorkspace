@@ -3,8 +3,9 @@
 整体模式与 AI-SessionManager 一致：
 - ThreadingHTTPServer 只绑 127.0.0.1；Host/Origin 校验；body 上限 1MB；
 - 路由用 if/elif 直排，API 处理函数返回纯 dict；
-- --app 模式用 Chromium --app 开无地址栏窗口，页面 pagehide 时发
-  /api/bye，3 秒无新请求才退出（刷新不算关闭）；
+- --app 模式优先用 pywebview 开原生窗口（窗口属于本进程，任务栏图标/固定
+  都是应用自己的）；pywebview 不可用时回退到 Chromium --app，页面 pagehide
+  时发 /api/bye，3 秒无新请求才退出（刷新不算关闭）；
 - 本项目新增：提醒调度线程（每 15s 把到期提醒置为已触发）与
   「后台驻留」（设置 keep_alive=1 时关窗不退出，由 PowerShell 弹 Toast）。
 """
@@ -28,10 +29,34 @@ from . import core, db, notify
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 LAST_HIT = [0.0]    # 最近一次请求时间（/api/bye 除外）
-CLOSE_AT = [0.0]    # 页面离开时间（仅 app 模式）
+CLOSE_AT = [0.0]    # 页面离开时间（仅浏览器窗口回退模式）
 APP_MODE = [False]
 SERVER = [None]     # ThreadingHTTPServer 引用，供 /api/shutdown 使用
+WINDOW = [None]     # pywebview 原生窗口，供 /api/shutdown 一并关闭
+EXITING = threading.Event()
 LOG = logging.getLogger("personal_workspace")
+
+# WebView2 的精简参数（本地单页应用用不到后台服务/扩展）：
+# 渲染进程数、V8 堆、后台组件都和之前的 Edge --app 窗口保持一致。
+_WEBVIEW2_ARGS = " ".join([
+    "--disable-gpu",
+    "--in-process-gpu",
+    "--disable-extensions",
+    "--disable-sync",
+    "--disable-component-update",
+    "--disable-background-networking",
+    "--disable-breakpad",
+    "--disable-client-side-phishing-detection",
+    "--disable-default-apps",
+    "--no-service-autorun",
+    "--metrics-recording-only",
+    "--process-per-site",
+    "--renderer-process-limit=1",
+    "--js-flags=--max-old-space-size=128",
+    "--disable-component-extensions-with-background-pages",
+    "--disable-features=msEdgeSearchIndexer,msEdgeSidebarV2,Translate,"
+    "OptimizationHints,MediaRouter",
+])
 
 STATIC_TYPES = {".css": "text/css; charset=utf-8",
                 ".js": "application/javascript; charset=utf-8",
@@ -473,10 +498,17 @@ class Handler(BaseHTTPRequestHandler):
                     CLOSE_AT[0] = time.time()
                 return self._json({"ok": True})
             if p == "/api/shutdown":
+                EXITING.set()
                 srv = SERVER[0]
                 if srv is not None:
                     threading.Thread(target=srv.shutdown,
                                      daemon=True).start()
+                win = WINDOW[0]
+                if win is not None:
+                    try:
+                        win.destroy()
+                    except Exception:  # noqa: BLE001
+                        LOG.exception("关闭原生窗口失败")
                 return self._json({"ok": True})
 
             if p == "/api/task/save":
@@ -623,6 +655,81 @@ def _chromium():
     return None
 
 
+def _set_aumid(app_id="PersonalWorkspace"):
+    """给本进程一个独立 AppUserModelID：任务栏图标/固定都用应用自己的。"""
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
+    except Exception as e:  # noqa: BLE001
+        LOG.info("设置 AppUserModelID 失败: %s", e)
+
+
+def _app_icon_path():
+    """窗口图标：打包后在 _MEIPASS，开发时用仓库根目录的 ico.ico。"""
+    cands = []
+    frozen = getattr(sys, "_MEIPASS", None)
+    if frozen:
+        cands.append(os.path.join(frozen, "ico.ico"))
+    cands.append(os.path.join(os.path.dirname(os.path.dirname(HERE)),
+                              "ico.ico"))
+    for p in cands:
+        if os.path.isfile(p):
+            return p
+    return None
+
+
+def _serve_http(httpd):
+    try:
+        httpd.serve_forever()
+    except Exception:  # noqa: BLE001
+        LOG.exception("HTTP 服务异常退出")
+
+
+def run_native_window(url):
+    """pywebview 原生窗口；返回 True 表示窗口生命周期已处理。
+
+    返回 False 表示 pywebview 不可用/启动失败，调用方回退到浏览器窗口。
+    HTTP 服务由调用方在后台线程启动，这里只负责窗口和退出策略。
+    """
+    os.environ.setdefault("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
+                          _WEBVIEW2_ARGS)
+    try:
+        import webview
+    except Exception as e:  # noqa: BLE001
+        LOG.info("pywebview 不可用，回退浏览器窗口: %s", e)
+        return False
+    _set_aumid()
+    try:
+        win = webview.create_window(
+            "个人工作台", url + "?app=1",
+            width=1280, height=860, min_size=(980, 640),
+            maximized=True, background_color="#F6F7F9")
+    except Exception as e:  # noqa: BLE001
+        LOG.exception("创建原生窗口失败，回退浏览器窗口: %s", e)
+        return False
+    WINDOW[0] = win
+    tag = url.rsplit(":", 1)[-1]
+    try:
+        webview.start(icon=_app_icon_path(), gui="edgechromium",
+                      private_mode=False,
+                      storage_path=os.path.join(db.data_dir(),
+                                                "webview-%s" % tag))
+    except Exception as e:  # noqa: BLE001
+        LOG.exception("原生窗口运行失败，回退浏览器窗口: %s", e)
+        WINDOW[0] = None
+        return False
+    WINDOW[0] = None
+    # 用户关窗：非后台驻留直接停服务；驻留则继续跑，直到「完全退出」
+    if not _keep_alive() or EXITING.is_set():
+        return True
+    while not EXITING.wait(1.0):
+        if not _keep_alive():
+            break
+    return True
+
+
 def open_app_window(url):
     """用浏览器的 --app 模式开一个没有地址栏/标签栏的窗口，像桌面客户端。"""
     exe = _chromium()
@@ -719,73 +826,102 @@ def serve(root=None, port=8766, open_browser=True, app_window=False,
 
     threading.Thread(target=_scheduler, daemon=True).start()
 
-    proc = None
     if app_window:
         APP_MODE[0] = True
-        proc = open_app_window(url)
-        if proc is None:
-            open_browser = True
-        else:
-            open_browser = False
+        # 原生窗口和浏览器回退都需要 HTTP 在后台跑
+        http_thread = threading.Thread(target=_serve_http, args=(httpd,),
+                                       daemon=True)
+        http_thread.start()
+        try:
+            if run_native_window(url):
+                return 0
 
-        # 页面关闭会发 /api/bye；3 秒无新请求才退出（后台驻留时不退出）
-        def _watch_close():
-            while True:
-                time.sleep(1)
-                if _keep_alive():
-                    continue
-                t = CLOSE_AT[0]
-                if t and time.time() - t > 3 and LAST_HIT[0] <= t:
+            # ---------- 回退：Chromium --app 窗口 ----------
+            proc = open_app_window(url)
+            if proc is None:
+                open_browser = True
+            else:
+                open_browser = False
+
+                # 页面关闭会发 /api/bye；3 秒无新请求才退出（后台驻留时不退出）
+                def _watch_close():
+                    while True:
+                        time.sleep(1)
+                        if _keep_alive():
+                            continue
+                        t = CLOSE_AT[0]
+                        if t and time.time() - t > 3 and LAST_HIT[0] <= t:
+                            try:
+                                httpd.shutdown()
+                            except Exception:  # noqa: BLE001
+                                pass
+                            return
+
+                threading.Thread(target=_watch_close, daemon=True).start()
+
+            if open_browser:
+                try:
+                    webbrowser.open(url)
+                except Exception:  # noqa: BLE001
+                    pass
+
+            if proc is not None:
+                # 窗口一关，浏览器进程就退出 → 服务跟着停（后台驻留时不退出）
+                def _watch_window():
+                    time.sleep(2.5)
+                    # Edge 已在运行时新窗口交给已有进程，Popen 会立刻退出：
+                    # 这种情况交给 /api/bye 判断，别据此关服务
+                    if proc.poll() is not None:
+                        return
+                    try:
+                        proc.wait()
+                    except Exception:  # noqa: BLE001
+                        pass
+                    while _keep_alive():
+                        time.sleep(5)
                     try:
                         httpd.shutdown()
                     except Exception:  # noqa: BLE001
                         pass
-                    return
 
-        threading.Thread(target=_watch_close, daemon=True).start()
+                threading.Thread(target=_watch_window, daemon=True).start()
+            elif idle_exit:
+                # 退回默认浏览器时感知不到窗口关闭：长时间没人访问就自己退出
+                LAST_HIT[0] = time.time()
+
+                def _watch_idle():
+                    while True:
+                        time.sleep(60)
+                        if _keep_alive():
+                            continue
+                        if time.time() - LAST_HIT[0] > idle_exit:
+                            try:
+                                httpd.shutdown()
+                            except Exception:  # noqa: BLE001
+                                pass
+                            return
+
+                threading.Thread(target=_watch_idle, daemon=True).start()
+
+            http_thread.join()
+            return 0
+        except KeyboardInterrupt:
+            _say("\n已退出")
+            return 0
+        finally:
+            try:
+                httpd.shutdown()
+            except Exception:  # noqa: BLE001
+                pass
+            http_thread.join(timeout=5)
+            httpd.server_close()
+            SERVER[0] = None
 
     if open_browser:
         try:
             webbrowser.open(url)
         except Exception:  # noqa: BLE001
             pass
-    if proc is not None:
-        # 窗口一关，浏览器进程就退出 → 服务跟着停（后台驻留时不退出）
-        def _watch_window():
-            time.sleep(2.5)
-            # Edge 已在运行时新窗口交给已有进程，Popen 会立刻退出：
-            # 这种情况交给 /api/bye 判断，别据此关服务
-            if proc.poll() is not None:
-                return
-            try:
-                proc.wait()
-            except Exception:  # noqa: BLE001
-                pass
-            while _keep_alive():
-                time.sleep(5)
-            try:
-                httpd.shutdown()
-            except Exception:  # noqa: BLE001
-                pass
-
-        threading.Thread(target=_watch_window, daemon=True).start()
-    elif app_window and idle_exit:
-        # 退回默认浏览器时感知不到窗口关闭：长时间没人访问就自己退出
-        LAST_HIT[0] = time.time()
-
-        def _watch_idle():
-            while True:
-                time.sleep(60)
-                if _keep_alive():
-                    continue
-                if time.time() - LAST_HIT[0] > idle_exit:
-                    try:
-                        httpd.shutdown()
-                    except Exception:  # noqa: BLE001
-                        pass
-                    return
-
-        threading.Thread(target=_watch_idle, daemon=True).start()
 
     try:
         httpd.serve_forever()
@@ -804,7 +940,7 @@ def main(argv=None):
     ap.add_argument("--no-browser", action="store_true",
                     help="不自动打开浏览器")
     ap.add_argument("--app", action="store_true",
-                    help="用独立客户端窗口打开（Chromium 的 --app 模式）")
+                    help="用独立客户端窗口打开（pywebview 原生窗口）")
     a = ap.parse_args(argv)
     return serve(None, a.port, not a.no_browser, app_window=a.app)
 

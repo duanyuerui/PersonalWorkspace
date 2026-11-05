@@ -3,9 +3,10 @@
 以「今天」为主入口、以时间为线索的个人工作与生活管理工作台。
 待办 · 日程 · 提醒 · 每日总结 · 收集箱 · 重要日子 · 时间轴 · 工作台概览。
 
-技术栈与 [AI-SessionManager](../AI-SessionManager) 一致：**Python 3.9+ 纯标准库，零第三方依赖**；
-本地 `ThreadingHTTPServer` + 单文件 webui（vanilla JS）+ Chromium `--app` 独立窗口 +
-SQLite 存储 + PyInstaller 打包 onefile exe。
+技术栈：**Python 3.9+**；本地 `ThreadingHTTPServer` + 单文件 webui（vanilla JS）+
+**pywebview 原生窗口（WebView2）** + SQLite 存储 + PyInstaller 打包 onefile exe。
+服务与网页版仍只用标准库；只有 `--app` 原生窗口需要 pywebview，缺失时自动回退
+Chromium `--app` 窗口。
 
 ## 快速开始
 
@@ -28,12 +29,13 @@ python -m personal_workspace stats    # 数据表行数
 ## 打包 exe
 
 ```text
-pip install -r requirements-dev.txt      # 只有 pyinstaller
+pip install -r requirements-dev.txt      # pyinstaller + pywebview
 python -m PyInstaller --noconfirm --clean PersonalWorkspace.spec
 dist\PersonalWorkspace.exe               # 双击即用（窗口版，无控制台）
 ```
 
-重新打包前先关掉正在运行的 exe（Windows 文件锁）。
+客户端窗口使用系统自带的 Edge WebView2 运行时（Windows 11 自带；Windows 10
+随 Edge 安装）。重新打包前先关掉正在运行的 exe（Windows 文件锁）。
 
 ## 数据与目录
 
@@ -42,7 +44,8 @@ dist\PersonalWorkspace.exe               # 双击即用（窗口版，无控制�
 ├── workspace.db      # SQLite（WAL 模式；时刻存 epoch 秒，纯日期存本地 ISO 日期）
 ├── Backups\          # 「设置 → 立即备份」的备份文件（SQLite Backup API），最多保留最近 7 份
 ├── Logs\app.log      # 日志（每天滚动，保留最近 15 天）
-└── app-profile-<端口>\  # 客户端窗口的浏览器 profile
+├── webview-<端口>\   # 原生客户端窗口（WebView2）的浏览器数据
+└── app-profile-<端口>\  # 回退 Edge 窗口时的浏览器 profile
 ```
 
 环境变量 `PWS_DATA_DIR` 可把整个数据目录指到别处（测试/便携使用）。
@@ -66,6 +69,9 @@ doc/                              # 产品需求与原型文档
 ## 设计要点（与 PRD 对应）
 
 - **今天优先**：启动页默认「今天」，无计划日期的待办不挤进今天列表。
+- **原生窗口**：`--app` 用 pywebview + WebView2 开自己的窗口，窗口属于本进程，
+  任务栏图标和固定项都是应用自己的；pywebview/WebView2 不可用时自动回退
+  Chromium `--app`。
 - **待办 ≠ 日程**：`biz_task` 与 `biz_calendar_event` 分表，日程可关联待办。
 - **逾期是展示状态**：由 planned_date/due_date 与状态实时计算，不改任务状态字段。
 - **完成历史不可覆盖**：`biz_task_history` 记录 created/status/edit 流水。
@@ -78,6 +84,8 @@ doc/                              # 产品需求与原型文档
 - **备份恢复**：SQLite Backup API；恢复前自动再备份当前库。
 
 ## 版本
+
+V1.1.0 —— 客户端窗口换成 pywebview 原生窗口（WebView2）：窗口属于本进程，固定到任务栏不再变成 Edge 图标；关窗/完全退出的生命周期保持不变。
 
 V1.0.5 —— 日报逐条对齐：别的日期删掉的同名任务不再挡住今天日报记入，日报 8 行对应今天页 8 条完成。
 
