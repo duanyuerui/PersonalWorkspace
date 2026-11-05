@@ -324,7 +324,8 @@ def tag_assign(conn, item_type, item_id, tag_ids):
 # ---------------------------------------------------------------- 待办
 
 def _sort_tasks(tasks):
-    return sorted(tasks, key=lambda t: (-t["priority"], t["created_at"]))
+    # 先按优先级，再按时间倒序（新创建的排在前面，今天刚加的不会被压到列表底部）
+    return sorted(tasks, key=lambda t: (-t["priority"], -(t["created_at"] or 0)))
 
 
 def task_list(conn, flt="all", q=""):

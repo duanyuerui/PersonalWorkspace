@@ -718,17 +718,17 @@ button.pw-trow-title:hover{color:rgb(var(--c-accent));text-decoration:underline;
                     <div class="pw-trow done" data-row="d1" data-via="勾选">
                       <button class="pw-check" data-task="d1" aria-label="撤销完成：晨间站会准备"><i data-lucide="check" aria-hidden="true"></i></button>
                       <button class="pw-trow-title" data-open="d1">晨间站会准备</button>
-                      <span class="pw-trow-meta"><span class="pw-badge is-success">勾选完成</span><span class="pw-trow-time">09:40 完成</span></span>
+                      <span class="pw-trow-meta"><span class="pw-badge is-success">勾选完成</span><span class="pw-trow-time">2026年10月31日 09:40 完成</span></span>
                     </div>
                     <div class="pw-trow done" data-row="d2" data-via="勾选">
                       <button class="pw-check" data-task="d2" aria-label="撤销完成：审批付款申请"><i data-lucide="check" aria-hidden="true"></i></button>
                       <button class="pw-trow-title" data-open="d2">审批付款申请</button>
-                      <span class="pw-trow-meta"><span class="pw-badge is-success">勾选完成</span><span class="pw-trow-time">10:12 完成</span></span>
+                      <span class="pw-trow-meta"><span class="pw-badge is-success">勾选完成</span><span class="pw-trow-time">2026年10月31日 10:12 完成</span></span>
                     </div>
                     <div class="pw-trow done" data-row="d3" data-via="日报">
                       <button class="pw-check" data-task="d3" aria-label="撤销完成：给绿植浇水"><i data-lucide="check" aria-hidden="true"></i></button>
                       <button class="pw-trow-title" data-open="d3">给绿植浇水</button>
-                      <span class="pw-trow-meta"><span class="pw-badge">日报记录</span><span class="pw-trow-time">08:55 完成</span></span>
+                      <span class="pw-trow-meta"><span class="pw-badge">日报记录</span><span class="pw-trow-time">2026年10月31日 08:55 完成</span></span>
                     </div>
                   </div>
                 </div>
@@ -917,17 +917,17 @@ button.pw-trow-title:hover{color:rgb(var(--c-accent));text-decoration:underline;
                     <div class="pw-trow done" data-row="d1" data-status="done" data-via="勾选">
                       <button class="pw-check" data-task="d1" aria-label="撤销完成：晨间站会准备"><i data-lucide="check" aria-hidden="true"></i></button>
                       <button class="pw-trow-title" data-open="d1">晨间站会准备</button>
-                      <span class="pw-trow-meta"><span class="pw-badge is-success">勾选完成</span><span class="pw-trow-time">今天 09:40 完成</span></span>
+                      <span class="pw-trow-meta"><span class="pw-badge is-success">勾选完成</span><span class="pw-trow-time">2026年10月31日 09:40 完成</span></span>
                     </div>
                     <div class="pw-trow done" data-row="d2" data-status="done" data-via="勾选">
                       <button class="pw-check" data-task="d2" aria-label="撤销完成：审批付款申请"><i data-lucide="check" aria-hidden="true"></i></button>
                       <button class="pw-trow-title" data-open="d2">审批付款申请</button>
-                      <span class="pw-trow-meta"><span class="pw-badge is-success">勾选完成</span><span class="pw-trow-time">今天 10:12 完成</span></span>
+                      <span class="pw-trow-meta"><span class="pw-badge is-success">勾选完成</span><span class="pw-trow-time">2026年10月31日 10:12 完成</span></span>
                     </div>
                     <div class="pw-trow done" data-row="d3" data-status="done" data-via="日报">
                       <button class="pw-check" data-task="d3" aria-label="撤销完成：给绿植浇水"><i data-lucide="check" aria-hidden="true"></i></button>
                       <button class="pw-trow-title" data-open="d3">给绿植浇水</button>
-                      <span class="pw-trow-meta"><span class="pw-badge">日报记录</span><span class="pw-trow-time">今天 08:55 完成</span></span>
+                      <span class="pw-trow-meta"><span class="pw-badge">日报记录</span><span class="pw-trow-time">2026年10月31日 08:55 完成</span></span>
                     </div>
                   </div>
                 </div>
@@ -1678,6 +1678,9 @@ button.pw-trow-title:hover{color:rgb(var(--c-accent));text-decoration:underline;
     var d = new Date();
     return ('0'+d.getHours()).slice(-2) + ':' + ('0'+d.getMinutes()).slice(-2);
   }
+  /* 原型固定演示日期：完成时间要带上年月日，与程序一致 */
+  var PROTOTYPE_TODAY = '2026年10月31日';
+  function doneTimeText(hm){ return PROTOTYPE_TODAY + ' ' + hm + ' 完成'; }
 
   /* ---------- 页面导航 ---------- */
   function goPage(name){
@@ -1989,7 +1992,7 @@ button.pw-trow-title:hover{color:rgb(var(--c-accent));text-decoration:underline;
             : (t.via === '手动'
               ? '<span class="pw-badge is-success">手动完成</span>'
               : '<span class="pw-badge is-success">勾选完成</span>')) +
-            '<span class="pw-trow-time">' + hm + ' 完成</span>';
+            '<span class="pw-trow-time">' + doneTimeText(hm) + '</span>';
         }
       });
       $$('#pw-today-list [data-row="'+id+'"]').forEach(function(row){
@@ -2624,7 +2627,7 @@ button.pw-trow-title:hover{color:rgb(var(--c-accent));text-decoration:underline;
     return '<div class="pw-trow done" data-row="' + id + '" data-status="done" data-via="日报">' +
       '<button class="pw-check" data-task="' + id + '" aria-label="撤销完成：' + title + '"><i data-lucide="check" aria-hidden="true"></i></button>' +
       '<button class="pw-trow-title" data-open="' + id + '">' + title + '</button>' +
-      '<span class="pw-trow-meta"><span class="pw-badge">日报记录</span><span class="pw-trow-time">' + hm + ' 完成</span></span>' + rowDelBtnHtml(id) + '</div>';
+      '<span class="pw-trow-meta"><span class="pw-badge">日报记录</span><span class="pw-trow-time">' + doneTimeText(hm) + '</span></span>' + rowDelBtnHtml(id) + '</div>';
   }
   /* 标题比对前去掉行首列表符号，兼容历史数据里的「- 」「* 」「1. 」 */
   function stripJournalMarker(s){

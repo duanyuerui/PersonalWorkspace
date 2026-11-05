@@ -1381,6 +1381,11 @@ html.pw-pre-dark #pw-prototype:not(.pw-dark){background:#0d0f12;}
     var d = parseKey(k); d.setDate(d.getDate() + n); return dateKey(d);
   }
   function fmtMD(k){ var d = parseKey(k); return (d.getMonth()+1) + '月' + d.getDate() + '日'; }
+  function fmtYMD(k){
+    // 带年份的完整日期：完成时间这类跨天数据必须能看出是哪一天
+    var d = parseKey(k);
+    return d.getFullYear() + '年' + (d.getMonth()+1) + '月' + d.getDate() + '日';
+  }
   function fmtMDAny(k){
     if(!k) return '';
     if(k.length === 5){ return (+k.slice(0,2)) + '月' + (+k.slice(3,5)) + '日'; }  // 'MM-DD'（每年重复的重要日子）
@@ -1608,7 +1613,8 @@ html.pw-pre-dark #pw-prototype:not(.pw-dark){background:#0d0f12;}
   /* ================= 行渲染 ================= */
   function taskTimeText(t){
     if(t.status === 2){
-      return epochToHM(t.completed_at) + ' 完成';
+      // 已完成按完成时间倒序排列；这里带完整年月日，才看得出来哪条是今天完成的
+      return fmtYMD(epochToDate(t.completed_at)) + ' ' + epochToHM(t.completed_at) + ' 完成';
     }
     var overdueCls = t.overdue ? ' is-overdue' : '';
     if(t.due_date){
