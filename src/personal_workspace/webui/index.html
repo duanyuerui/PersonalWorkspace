@@ -1510,6 +1510,7 @@ html.pw-pre-dark #pw-prototype:not(.pw-dark){background:#0d0f12;}
     journal: null,
     journalShown: '',     // 文本框里实际显示的是哪一天，防止把内容存到别的日期
     tlDate: todayKey(),
+    tlToday: todayKey(),   // 进入时间轴时「今天」的锚点，跨天用来自动跳转
     tlData: null,
     tlFilter: 'all',
     wbTrend: 'week',
@@ -1578,6 +1579,26 @@ html.pw-pre-dark #pw-prototype:not(.pw-dark){background:#0d0f12;}
     await refreshPage(state.page, true);
   }
 
+  /* 日报核对会新增/移出完成记录：立刻刷新待办与「今天」页，别等重启才看得到 */
+  function reconcileChanged(res){
+    return !!(res && ((res.completed || []).length || (res.created || []).length ||
+                      (res.renamed || []).length || (res.removed || []).length));
+  }
+  async function refreshTaskData(){
+    try{
+      var results = await Promise.all([
+        api('/api/today'),
+        api('/api/tasks?filter=all')
+      ]);
+      state.today = results[0];
+      state.tasks = results[1];
+      renderBadges();
+      renderToday();
+      renderTasks();
+      fillTaskFilters();
+    }catch(e){ /* 日报本身已保存，这里静默 */ }
+  }
+
   async function refreshPage(name, quiet){
     try{
       if(name === 'today'){
@@ -1588,7 +1609,7 @@ html.pw-pre-dark #pw-prototype:not(.pw-dark){background:#0d0f12;}
       else if(name === 'reminders'){ await loadReminders(); }
       else if(name === 'journal'){ syncJournalToday(); await loadJournal(); }
       else if(name === 'wb'){ await loadWb(); }
-      else if(name === 'tl'){ await loadTL(); }
+      else if(name === 'tl'){ syncTlToday(); await loadTL(); }
       else if(name === 'days'){ await loadDays(); }
       else if(name === 'inbox'){ await loadInbox(); }
       else if(name === 'cats'){ renderCats(); renderTags(); }
@@ -3037,10 +3058,11 @@ html.pw-pre-dark #pw-prototype:not(.pw-dark){background:#0d0f12;}
       if(state.journalShown === cur &&
          (t1.value !== (saved.content || '') || t2.value !== (saved.plan || ''))){
         await post('/api/journal/save', {date: cur, content: t1.value, plan: t2.value});
-        await post('/api/journal/reconcile', {date: cur, content: t1.value});
+        var rec = await post('/api/journal/reconcile', {date: cur, content: t1.value});
         state.journal = state.journal || {};
         state.journal.content = t1.value;
         state.journal.plan = t2.value;
+        if(reconcileChanged(rec)){ await refreshTaskData(); }
       }
       state.journalDate = next;
       closeJcal();
@@ -3179,6 +3201,7 @@ html.pw-pre-dark #pw-prototype:not(.pw-dark){background:#0d0f12;}
       if((res.renamed || []).length){ parts.push('改名 ' + res.renamed.length + ' 件'); }
       if((res.removed || []).length){ parts.push('移出 ' + res.removed.length + ' 件'); }
       if(parts.length){ toast('已与「今日完成」同步：' + parts.join('，')); }
+      if(reconcileChanged(res)){ refreshTaskData(); }
       if(state.journalDate === d){ loadJournal(); }
     }).catch(handleError);
   });
@@ -3524,6 +3547,27 @@ html.pw-pre-dark #pw-prototype:not(.pw-dark){background:#0d0f12;}
   });
 
   /* ================= 时间轴 ================= */
+  /* 跨天：时间轴一直开着时，第二天自动切到新的「今天」。
+     只有当前显示的就是「今天」才跳；手动翻到往日/未来不动。 */
+  function syncTlToday(){
+    var t = todayKey();
+    if(state.tlDate === state.tlToday && state.tlToday !== t){
+      state.tlDate = t;
+      state.tlToday = t;
+      return true;
+    }
+    return false;
+  }
+  async function tlRolloverTick(){
+    if(state.page !== 'tl'){ return; }
+    var t = todayKey();
+    if(state.tlDate !== state.tlToday || state.tlToday === t){ return; }
+    if(!syncTlToday()){ return; }
+    try{
+      await loadTL();
+      if(state.tlDate === t){ toast('已自动切换到今天 · ' + fmtMD(t)); }
+    }catch(err){ handleError(err); }
+  }
   var TL_KIND_LABEL = {done:'待办', event:'日程', remind:'提醒', note:'记录', day:'重要日子'};
   function tlColor(it){
     if(it.kind === 'done'){ return 'rgb(var(--c-success))'; }
@@ -3534,6 +3578,7 @@ html.pw-pre-dark #pw-prototype:not(.pw-dark){background:#0d0f12;}
   async function loadTL(){
     var data = await api('/api/timeline?date=' + state.tlDate);
     state.tlData = data;
+    if(data.date === todayKey()){ state.tlToday = data.date; }
     var rel = relDay(data.date);
     document.getElementById('pw-tl-date-text').textContent = fmtMD(data.date);
     document.getElementById('pw-tl-wd').textContent = '星期' + WD[parseKey(data.date).getDay()];
@@ -4063,9 +4108,10 @@ html.pw-pre-dark #pw-prototype:not(.pw-dark){background:#0d0f12;}
     }catch(e){ /* 服务未就绪时静默 */ }
   }
   document.addEventListener('visibilitychange', function(){
-    if(!document.hidden){ pollNotify(); journalRolloverTick(); }
+    if(!document.hidden){ pollNotify(); journalRolloverTick(); tlRolloverTick(); }
   });
   window.addEventListener('focus', journalRolloverTick);
+  window.addEventListener('focus', tlRolloverTick);
 
   /* ================= 键盘 ================= */
   document.addEventListener('keydown', function(e){
@@ -4134,6 +4180,7 @@ html.pw-pre-dark #pw-prototype:not(.pw-dark){background:#0d0f12;}
     pollUiVersion();
     setInterval(pollUiVersion, 15000);
     setInterval(journalRolloverTick, 60000);
+    setInterval(tlRolloverTick, 60000);
   }).catch(function(e){
     toast('加载失败：' + (e.message || e));
   });
